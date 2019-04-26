@@ -1,0 +1,237 @@
+#!/usr/bin/env python
+import numpy
+import scipy.stats
+from scipy.stats import poisson, nbinom, truncnorm, gamma, invgamma
+
+#
+# Generate data
+#
+# Model truth: Poisson
+lambda_true = 5
+data = poisson.rvs(lambda_true, size=100)
+
+#
+# Proposal matrix
+#
+# A -> A
+# {}_A -> {}_A : MH
+def prop_AA(lambd, std=1.):
+    clip_left, clip_right = -lambd / std, numpy.inf
+
+    rvs = truncnorm.rvs(clip_left, clip_right, lambd, std)
+    pdf = truncnorm.pdf(lambd, clip_left, clip_right, lambd, std)
+
+    clip_left, clip_right = -rvs / std, numpy.inf
+
+    #rpdf = truncnorm.pdf(lambd, clip_left, clip_right, rvs, std)
+    #hast_ratio = pdf / rpdf
+    hast_ratio = pdf
+
+    return [rvs], hast_ratio, numpy.eye(1)
+
+#
+# B -> B
+# {}_B -> {}_B : MH
+#
+def prop_BB(lambd, r, std=1.):
+    lrvs, lr, _ = prop_AA(lambd, std)
+    rrvs, rr, _ = prop_AA(r, std)
+
+    return numpy.concatenate((lrvs, rrvs)), lr*rr, numpy.eye(2)
+
+# A -> B
+# \lambda -> \lambda
+# aux_var ~ U(0, 1) -> r ~ \exp(\theta = 1)
+def prop_AB(lambd, std=1.):
+    # Lambda is a passthrough
+
+    # Propose in the lower space by generating an auxiliary variable
+    # Generate dimension matching variable
+    w = scipy.stats.uniform.rvs(0, 1)
+    # proposal density
+    pdens = scipy.stats.uniform.pdf(w, 0, 1)
+
+    # Transform to higher space
+    r = -numpy.log(w)
+
+    # Jacobian matrix
+    jmat = numpy.asarray((
+            # B dependence on A variables (lambda on A)
+            (1., 0),
+            # B dependence on A variables (r on B)
+            # NOTE: negative sign gets dropped because it's actually 1 - w,
+            # uniform done don't care 'bout that.
+            (0., 1 / w)
+           ))
+
+    return (lambd, r), pdens, jmat
+
+#
+# B -> A
+# \lambda -> \lambda
+# r -> null
+def prop_BA(lambd, r, std=1.):
+    # Lambda is a passthrough
+
+    # Transform to lower space
+    # NOTE: We do not use this
+    w = numpy.exp(-r)
+    # proposal density --- we "propose" to stay here as opposed to move to the
+    # smaller space
+    pdens = 1.0
+
+    # Jacobian matrix
+    jmat = numpy.asarray((
+            # A dependence on B variables (lambda on B)
+            (1., 0),
+            # A dependence on B variables (w on B)
+            (0., -numpy.exp(-r))
+           ))
+    # FIXME: Inverse because the above is the inverse order of variables
+    jmat = numpy.linalg.inv(jmat)
+
+    return (lambd,), pdens, jmat
+
+def model_prior(*prm):
+    priors = []
+    # FIXME: In practice, each model can have different priors on the params
+    # lambda: Poisson conjugate prior -- Gamma
+    p_l = gamma.pdf(prm[0], 2, 2)
+    priors.append(p_l)
+
+    # r: neg. binomial conjugate prior -- Inv. Gamma, conditioned on lambda
+    # correspondence above.
+    if len(prm) > 1:
+        p_r = invgamma.pdf(prm[1], 1, scale=1)
+        priors.append(p_r)
+
+    # FIXME: Do this, but not dumbly...
+    return numpy.prod(priors[:len(prm)])
+
+# Two models: p(k'|k)
+model_names = ["A", "B"]
+
+models = [None, None]
+#
+# Model A -- poisson
+#
+models[0] = poisson
+
+#
+# Model B -- negative binomial
+# Reparameterized to preserve the sense of the mean param
+#
+def _nbinom(lambd, r):
+    p = r / (lambd + r)
+    return nbinom(r, p)
+models[1] = _nbinom
+
+model_idx = numpy.arange(len(models)) # 0 -> A and 1 -> B
+model_transition = numpy.ones((2, 2)) * 0.5
+transition_step = [[prop_AA, prop_AB], \
+                   [prop_BA, prop_BB]]
+
+max_l = models[0](lambda_true).logpmf(data).sum()
+
+def mcmc_step(mdl, data, *prms, **flags):
+
+    burnin = flags.pop("burnin", False)
+
+    # Should I stay or should I go now...
+    # FIXME: Need model jump probabilities here too
+    new_mdl = numpy.random.choice(model_idx, p=model_transition[mdl])
+
+    # NOTE: std can be tuned here
+    rvs, prop_dens, jmat = transition_step[mdl][new_mdl](*prms)#, std=0.1)
+    prop_dens = numpy.log(prop_dens)
+    mdl_prms = " ".join(["{0:1.1f}".format(p) for p in rvs])
+
+    print "Current model: {0} ({1:d}), proposed model: {2} ({3:d})".format(model_names[mdl], mdl, model_names[new_mdl], new_mdl)
+    print "Proposed model params: {0} --> {1}".format(model_names[new_mdl], mdl_prms)
+
+    # reverse proposal density
+    # FIXME: Is this correct and/or efficient?
+    # FIXME: you already have the rev proposal density in AA, BB moves
+    _, rev_prop_dens, _ = transition_step[new_mdl][mdl](*rvs)#, std=0.1)
+    rev_prop_dens = numpy.log(rev_prop_dens)
+
+    prior_new = model_prior(*rvs)
+    prior_old = model_prior(*prms)
+    targ_new = models[new_mdl](*rvs).logpmf(data).sum() + prop_dens + prior_new
+    targ_old = models[mdl](*prms).logpmf(data).sum() + rev_prop_dens + prior_old
+
+    print "New target density, old target density, max L, ratio"
+    print targ_new, targ_old, max_l, numpy.exp(targ_new - targ_old)
+
+    det_J = abs(numpy.linalg.det(jmat))
+    print "|det(J)|: {0:1.1e}".format(det_J)
+
+    #if new_mdl != mdl and det_J < 1e-2:
+        #import pdb; pdb.set_trace()
+
+    accept = min(1, numpy.exp(targ_new - targ_old) * det_J)
+    
+    # If I go, there will be trouble...
+    if numpy.random.uniform(0, 1) < accept:
+        print "Target acceptance: {0:.2e} (accept)".format(accept)
+        return new_mdl, rvs, targ_new
+    # If I stay, there will be double...
+    else:
+        print "Target acceptance: {0:.2e} (reject)".format(accept)
+        return mdl, prms, targ_old
+
+samples = {}
+for idx in model_idx:
+    samples[idx] = []
+
+#
+# Do burnin
+#
+m, x = 1, [lambda_true * 0.5, 1.0]
+#m, x = 0, [lambda_true]
+for i in range(1000):
+    #print m, x
+    m, x, lnp = mcmc_step(m, data, *x, burnin=True) 
+
+    samples[m].append(x)
+
+# update model jump table
+#model_prob = map(len, [samples[k] for k in model_idx])
+#model_prob = numpy.divide(model_prob, sum(model_prob))
+
+#
+# Do sampling
+#
+samples = {}
+for idx in model_idx:
+    samples[idx] = []
+
+max_ln_p = -numpy.inf
+for i in range(10000):
+    #print m, x
+    m, x, lnp = mcmc_step(m, data, *x) 
+
+    if i > 1000:
+        samples[m].append(x)
+
+    if lnp > max_ln_p:
+        max_ln_p = lnp
+
+#
+# Corner plots
+#
+from matplotlib import pyplot
+from corner import corner
+for idx, samp in samples.iteritems():
+    corner(samp)
+    pyplot.show()
+
+#
+# Relative BF calculation
+#
+evid = []
+for samp in [samples[i] for i in model_idx]:
+    evid.append(len(samp))
+
+print max_l, max_ln_p
+print list(zip(model_idx, evid))
