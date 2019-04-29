@@ -119,11 +119,17 @@ models[0] = poisson
 
 #
 # Model B -- negative binomial
-# Reparameterized to preserve the sense of the mean param
 #
-def _nbinom(lambd, r):
-    p = r / (lambd + r)
-    return nbinom(r, p)
+def _nbinom(lambd, alpha):
+    """
+    Reparameterized to preserve the sense of the mean param while including overdispersion alpha
+    See also: https://stats.stackexchange.com/questions/260580/negative-binomial-distribution-with-python-scipy-stats
+    """
+    #p = r / (lambd + r)
+    var = lambd + alpha * lambd**2
+    p = (var - lambd) / var
+    r = lambd**2 / (var - lambd)
+    return nbinom(r, 1 - p)
 models[1] = _nbinom
 
 model_idx = numpy.arange(len(models)) # 0 -> A and 1 -> B
