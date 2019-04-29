@@ -96,7 +96,7 @@ def model_prior(*prm):
     priors = []
     # FIXME: In practice, each model can have different priors on the params
     # lambda: Poisson conjugate prior -- Gamma
-    p_l = gamma.pdf(prm[0], 2, 2)
+    p_l = gamma.pdf(prm[0], 2, scale=2)
     priors.append(p_l)
 
     # r: neg. binomial conjugate prior -- Inv. Gamma, conditioned on lambda
