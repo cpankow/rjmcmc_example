@@ -116,6 +116,14 @@ def model_prior(*prm):
 
 # Two models: p(k'|k)
 model_names = ["A", "B"]
+param_names = {
+    "lambda": r"$\lambda$",
+    "r": r"$r$",
+}
+param_sets = {
+    "A": set(("lambda",)),
+    "B": set(("lambda", "r"))
+}
 
 models = [None, None]
 #
@@ -287,32 +295,62 @@ def identify_runs(seq):
 
     return mdl_seg
 
-def plot_samples(samp):
+def plot_samples(samp, draw_regions=False):
     fig = pyplot.figure()
 
     # FIXME: This will have to be *much* more sophisticated
+    idx_params = sorted(param_names.keys())
     nprm = 2
+    nmdl = len(model_idx)
+
+    palette = seaborn.color_palette()
+    gs = GridSpec(nprm, nmdl + 1)
 
     mdl_idx = numpy.zeros(10000)
     for idx in model_idx:
         samp = numpy.transpose(samples[idx])
-
         mdl_idx[samp[-2].astype(int)] = idx
 
-    runs = identify_runs(mdl_idx)
-        
-    for prm in range(nprm):
-        pyplot.subplot(nprm, 1, 1 + prm)
-        
-        # Draw model segments
-        # if prm in model_params:
+        # Draw sample scatter
+        for p in param_names:
+            if idx == 0 and p == "r":
+                continue
 
-        import seaborn
-        palette = seaborn.color_palette()
-        for idx, segs in runs.iteritems():
-            for st, en in segs:
-                pyplot.axvspan(st, en, color=palette[0], alpha=0.3)
-            palette.append(palette.pop(0))
+            prm = idx_params.index(p)
+            _s = samp[prm]
+            _i = samp[-2]
+            ax = pyplot.subplot(gs[prm,idx])
+            ax.scatter(_i, _s, color=palette[idx], s=1)
+
+            if idx == 0:
+                ax.set_ylabel(param_names[p])
+
+            # Draw end PDFs
+            ax = pyplot.subplot(gs[prm,-1])
+            seaborn.kdeplot(_s, vertical=True, ax=ax, color=palette[idx])
+
+            xl, xr = ax.get_ylim()
+            x = numpy.linspace(xl, xr, 1000)
+            if p == "lambda":
+                prior = gamma.pdf(x, 2, scale=2)
+            elif p == "r":
+                prior = invgamma.pdf(x, 1, scale=1)
+            ax.plot(prior, x, color='k')
+
+    return
+
+    runs = identify_runs(mdl_idx)
+    for prm in range(nprm):
+        for mdl in model_idx:
+            ax = gs[prm,mdl]
+
+            # Draw model segments
+            # if prm in model_params:
+            if draw_regions:
+                for idx, segs in runs.iteritems():
+                    for st, en in segs:
+                        ax.axvspan(st, en, color=palette[0], alpha=0.3)
+                    palette.append(palette.pop(0))
 
 plot_samples(samples)
 pyplot.show()
