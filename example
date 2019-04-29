@@ -208,11 +208,9 @@ for idx in model_idx:
 
 max_ln_p = -numpy.inf
 for i in range(10000):
-    #print m, x
     m, x, lnp = mcmc_step(m, data, *x) 
 
-    if i > 1000:
-        samples[m].append(x)
+    samples[m].append(numpy.hstack((x, i, lnp)))
 
     if lnp > max_ln_p:
         max_ln_p = lnp
@@ -223,7 +221,8 @@ for i in range(10000):
 from matplotlib import pyplot
 from corner import corner
 for idx, samp in samples.iteritems():
-    corner(samp)
+    samp = numpy.asarray(samp)
+    corner(samp[:,:-2])
     pyplot.show()
 
 #
