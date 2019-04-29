@@ -216,6 +216,16 @@ for i in range(10000):
         max_ln_p = lnp
 
 #
+# Relative BF calculation
+#
+evid = []
+for samp in [samples[i] for i in model_idx]:
+    evid.append(len(samp))
+
+print max_l, max_ln_p
+print list(zip(model_idx, evid))
+
+#
 # Corner plots
 #
 from matplotlib import pyplot
