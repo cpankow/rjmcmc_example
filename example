@@ -3,6 +3,12 @@ import numpy
 import scipy.stats
 from scipy.stats import poisson, nbinom, truncnorm, gamma, invgamma
 
+from matplotlib import pyplot
+from matplotlib.gridspec import GridSpec
+
+from corner import corner
+import seaborn
+
 #
 # Generate data
 #
@@ -234,8 +240,6 @@ print list(zip(model_idx, evid))
 #
 # Corner plots
 #
-from matplotlib import pyplot
-from corner import corner
 for idx, samp in samples.iteritems():
     samp = numpy.asarray(samp)
     corner(samp[:,:-2])
@@ -244,6 +248,7 @@ for idx, samp in samples.iteritems():
 #
 # Model plots
 #
+pyplot.figure()
 for idx in model_idx:
     samp = numpy.transpose(samples[idx])
     samp, sidx, lnp = samp[:-2], samp[-2], samp[-1]
@@ -253,10 +258,19 @@ for idx in model_idx:
 
     model = models[idx]
     n = numpy.arange(0, 20)
-    pyplot.plot(n, model(*mode).pmf(n))
-    pyplot.plot(n, models[0](lambda_true).pmf(n))
-    pyplot.title(idx)
-    pyplot.show()
+    pyplot.plot(n, model(*mode).pmf(n), label='model {0:d}'.format(idx))
+
+pyplot.xlim(0, None)
+pyplot.ylim(0, None)
+pyplot.plot(n, models[0](lambda_true).pmf(n), label='truth', color='k')
+
+# Draw data lines
+l, u = pyplot.ylim()
+for d in data:
+    pyplot.axvline(d, l, u * 0.05)
+
+pyplot.legend()
+pyplot.show()
 
 def identify_runs(seq):
     trans = numpy.argwhere(numpy.diff(seq) != 0).flatten() + 1
