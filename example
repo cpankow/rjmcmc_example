@@ -236,11 +236,63 @@ for idx, samp in samples.iteritems():
     pyplot.show()
 
 #
-# Relative BF calculation
+# Model plots
 #
-evid = []
-for samp in [samples[i] for i in model_idx]:
-    evid.append(len(samp))
+for idx in model_idx:
+    samp = numpy.transpose(samples[idx])
+    samp, sidx, lnp = samp[:-2], samp[-2], samp[-1]
 
-print max_l, max_ln_p
-print list(zip(model_idx, evid))
+    lnp_max = numpy.argmax(lnp)
+    mode = samp[:,lnp_max]
+
+    model = models[idx]
+    n = numpy.arange(0, 20)
+    pyplot.plot(n, model(*mode).pmf(n))
+    pyplot.plot(n, models[0](lambda_true).pmf(n))
+    pyplot.title(idx)
+    pyplot.show()
+
+def identify_runs(seq):
+    trans = numpy.argwhere(numpy.diff(seq) != 0).flatten() + 1
+
+    from collections import defaultdict
+    mdl_seg = defaultdict(list)
+    for st, en in zip(trans[:-1], trans[1:]):
+        mdl_seg[seq[st]].append((st, en))
+
+    # Opening segment
+    mdl_seg[seq[0]].append((0, trans[0]))
+    # Closing segment
+    mdl_seg[seq[-1]].append((trans[-1], len(seq)))
+
+    return mdl_seg
+
+def plot_samples(samp):
+    fig = pyplot.figure()
+
+    # FIXME: This will have to be *much* more sophisticated
+    nprm = 2
+
+    mdl_idx = numpy.zeros(10000)
+    for idx in model_idx:
+        samp = numpy.transpose(samples[idx])
+
+        mdl_idx[samp[-2].astype(int)] = idx
+
+    runs = identify_runs(mdl_idx)
+        
+    for prm in range(nprm):
+        pyplot.subplot(nprm, 1, 1 + prm)
+        
+        # Draw model segments
+        # if prm in model_params:
+
+        import seaborn
+        palette = seaborn.color_palette()
+        for idx, segs in runs.iteritems():
+            for st, en in segs:
+                pyplot.axvspan(st, en, color=palette[0], alpha=0.3)
+            palette.append(palette.pop(0))
+
+plot_samples(samples)
+pyplot.show()
