@@ -177,8 +177,8 @@ def mcmc_step(mdl, data, *prms, **flags):
 
     prior_new = model_prior(*rvs)
     prior_old = model_prior(*prms)
-    targ_new = models[new_mdl](*rvs).logpmf(data).sum() + prop_dens + prior_new
-    targ_old = models[mdl](*prms).logpmf(data).sum() + rev_prop_dens + prior_old
+    targ_new = models[new_mdl](*rvs).logpmf(data).sum() - prop_dens + prior_new
+    targ_old = models[mdl](*prms).logpmf(data).sum() - rev_prop_dens + prior_old
 
     print "New target density, old target density, max L, ratio"
     print targ_new, targ_old, max_l, numpy.exp(targ_new - targ_old)
